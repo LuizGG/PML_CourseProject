@@ -1,0 +1,105 @@
+---
+title: "Pratical machine learning project"
+output: html_document
+---
+
+
+### Pre-modeling
+
+Before any modelling we need to load the data and take a quick look at it
+
+```{r, echo=TRUE, results='hide',message=FALSE, warning=FALSE, cache=TRUE}
+library(caret)
+
+training <- read.csv('pml-training.csv')
+test <- read.csv('pml-testing.csv')
+
+str(training)
+summary(training)
+```
+
+In the not shown output we can see that there is a considerable number of factor variables that should be numeric. Also there is some strange values that should be considered missing
+Therefore to adjust this we do one simple  _for_ loop to transform the variables to numeric.
+
+```{r, echo=TRUE, results='hide', message=FALSE, warning=FALSE, cache=TRUE}
+for (i in 7:ncol(training)-1){
+  if (is.factor(training[,i])){
+    training[,i] <- as.numeric(levels(training[,i]))[training[,i]]
+  }
+}
+summary(training)
+```
+
+By the second summary (Also not shown), some of the transformed factor variables ended up with a reasonable quantity of NA's, as expected. This an issue since some modelling techniques do not allow missing values. Moreover, this increased number of useless observations can slow down the computations. Therefore, we do another _for_ loop to detect which variables have NA's and delete them from the training set.
+
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+
+aux = vector('numeric')
+
+for (i in 1:ncol(training)) {
+  aux <- c(aux,sum(is.na(training[,i]))) 
+}
+
+dlt <- aux == 0
+
+training <- training[, dlt == TRUE]
+
+```
+
+We end up with just 59 variables.
+
+### Modeling
+
+We will fit 3 models and compare them using the in sample accuracy. Additionally, to assess the trained model quality, during the estimation process we will repeat 25 times a 10%-fold cross validation. 
+We will not look very deep into this because with the options used, the _caret_ package, seems to select the best model automatically if you set specific controls before any estimation. The downside to this is that, apparently, different subsets of the data are created each time the _train_ function in called.
+The first model is a __classification tree__. 
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+cv_set <- trainControl(method = "cv", number = 10, repeats = 25)
+
+tree_fit <- train(training$classe ~., method = "rpart", trControl = cv_set ,data = training[,-c(1:6)])
+tree_fit
+acc_fit <- tree_fit$results[1,]
+acc_fit$cp <- NULL
+```
+
+The second model is a __Gradient boosted tree__
+
+```{r, results='hide', message=FALSE, warning=FALSE, cache=TRUE}
+gbm_fit <- train(training$classe ~., method = "gbm", trControl = cv_set, data = training[,-c(1:6)])
+```
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+gbm_fit
+acc_fit <- rbind(acc_fit, gbm_fit$results[9,c(5:ncol(gbm_fit$results))])
+```
+
+And the third model is a __Random forest__
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+rforest_fit <- train(training$classe ~., method = "rf", trControl = cv_set, data = training[,-c(1:6)])
+rforest_fit
+acc_fit <- rbind(acc_fit, rforest_fit$results[1,c(2:ncol(rforest_fit$results))])
+```
+
+With the three models built, we compare their accuracies to select the best model.
+
+```{r, message=FALSE, warning=FALSE, cache=TRUE}
+rownames(acc_fit) <- c("Decision Tree", "Gradient boosted tree", "Random forest")
+
+acc_fit
+````
+
+Looking only to accuracy, the best model clearly is the __Random Forest__ with over 99% accuracy. This seems pretty good if not suspicious and might be an indicator of over fitting.
+Moreover, we expect the out-of-sample error (in the test set) to be much bigger than the observed in the training set, since the parameters are estimated to better fit the training data set. Therefore a reduced accuracy is expected.
+
+
+### Limitations and conclusions
+
+There are some important things that were not done during this project that should be normally executed and that could have been very helpful, some of them are:
+
+* Doing some deeper exploratory data analysis;
+* Doing some preproecessing (Scaling, centering or PCA);
+* Investigate variable importance for each model to investigate the possible causes of over fitting;
+* Create a separate subset of the 25 10-CV subsets to compare each model since, in this case and as far as I know, R created different sub-samples for each modelling process.
